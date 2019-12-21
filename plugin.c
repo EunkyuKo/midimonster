@@ -24,28 +24,39 @@ static int plugin_attach(char* path, char* file){
 	plugin_init init = NULL;
 	void* handle = NULL;
 	char* lib = NULL;
-	char* error = NULL;
+	#ifdef _WIN32
+	char* path_separator = "\\";
+	#else
+	char* path_separator = "/";
+	#endif
 
-	lib = calloc(strlen(path) + strlen(file) + 1, sizeof(char));
+	if(!path || !file || !strlen(path)){
+		fprintf(stderr, "Invalid plugin loader path\n");
+		return 1;
+	}
+
+	lib = calloc(strlen(path) + strlen(file) + 2, sizeof(char));
 	if(!lib){
 		fprintf(stderr, "Failed to allocate memory\n");
 		return 1;
 	}
-	snprintf(lib, strlen(path) + strlen(file) + 1, "%s%s", path, file);
+	snprintf(lib, strlen(path) + strlen(file) + 2, "%s%s%s",
+			path,
+			(path[strlen(path) - 1] == path_separator[0]) ? "" : path_separator,
+			file);
 
 	handle = dlopen(lib, RTLD_NOW);
 	if(!handle){
 		#ifdef _WIN32
+		char* error = NULL;
 		FormatMessage(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
 			NULL, GetLastError(), MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), (LPTSTR) &error, 0, NULL);
-		#else
-		error = dlerror();
-		#endif
 		fprintf(stderr, "Failed to load plugin %s: %s\n", lib, error);
-		free(lib);
-		#ifdef _WIN32
 		LocalFree(error);
+		#else
+		fprintf(stderr, "Failed to load plugin %s: %s\n", lib, dlerror());
 		#endif
+		free(lib);
 		return 0;
 	}
 
@@ -135,10 +146,6 @@ load_done:
 			continue;
 		}
 
-		if(!(file_stat.st_mode & S_IXUSR)){
-			continue;
-		}
-
 		if(plugin_attach(path, entry->d_name)){
 			goto load_done;
 		}
@@ -156,10 +163,22 @@ load_done:
 
 int plugins_close(){
 	size_t u;
+
 	for(u = 0; u < plugins; u++){
+#ifdef _WIN32
+		char* error = NULL;
+		//FreeLibrary returns the inverse of dlclose
+		if(!FreeLibrary(plugin_handle[u])){
+			FormatMessage(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+				NULL, GetLastError(), MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), (LPTSTR) &error, 0, NULL);
+			fprintf(stderr, "Failed to unload plugin: %s\n", error);
+			LocalFree(error);
+		}
+#else
 		if(dlclose(plugin_handle[u])){
 			fprintf(stderr, "Failed to unload plugin: %s\n", dlerror());
 		}
+#endif
 	}
 
 	free(plugin_handle);

@@ -5,15 +5,18 @@ tool between multi-channel absolute-value-based control and/or bus protocols.
 
 Currently, the MIDIMonster supports the following protocols:
 
-* MIDI (Linux, via ALSA)
-* ArtNet
-* Streaming ACN (sACN / E1.31)
-* OpenSoundControl (OSC)
-* evdev input devices (Linux)
-* Open Lighting Architecture (OLA)
-* MA Lighting Web Remote
+| Protocol			| Operating Systems	| Notes				| Backends			|
+|-------------------------------|-----------------------|-------------------------------|-------------------------------|
+| MIDI				| Linux, Windows, OSX	| Linux: via ALSA/JACK, OSX: via JACK | [`midi`](backends/midi.md), [`winmidi`](backends/winmidi.md), [`jack`](backends/jack.md) |
+| ArtNet			| Linux, Windows, OSX	| Version 4			| [`artnet`](backends/artnet.md)|
+| Streaming ACN (sACN / E1.31)	| Linux, Windows, OSX	|				| [`sacn`](backends/sacn.md)	|
+| OpenSoundControl (OSC)	| Linux, Windows, OSX	|				| [`osc`](backends/osc.md)	|
+| evdev input devices		| Linux			| Virtual output supported	| [`evdev`](backends/evdev.md)	|
+| Open Lighting Architecture	| Linux, OSX		|				| [`ola`](backends/ola.md)	|
+| MA Lighting Web Remote	| Linux, Windows, OSX	| GrandMA and dot2 (incl. OnPC)	| [`maweb`](backends/maweb.md)	|
+| JACK/LV2 Control Voltage (CV)	| Linux, OSX		|				| [`jack`](backends/jack.md)	|
 
-with additional flexibility provided by a Lua scripting environment.
+with additional flexibility provided by a [Lua scripting environment](backends/lua.md).
 
 The MIDIMonster allows the user to translate any channel on one protocol into channel(s)
 on any other (or the same) supported protocol, for example to:
@@ -115,6 +118,8 @@ configuration options, channel specification syntax and any known problems or ot
 special information. These documentation files are located in the `backends/` directory.
 
 * [`midi` backend documentation](backends/midi.md)
+* [`jack` backend documentation](backends/jack.md)
+* [`winmidi` backend documentation](backends/winmidi.md)
 * [`artnet` backend documentation](backends/artnet.md)
 * [`sacn` backend documentation](backends/sacn.md)
 * [`evdev` backend documentation](backends/evdev.md)
@@ -134,21 +139,97 @@ This section will explain how to build the provided sources to be able to run
 In order to build the MIDIMonster, you'll need some libraries that provide
 support for the protocols to translate.
 
-* `libasound2-dev` (for the MIDI backend)
+* `libasound2-dev` (for the ALSA MIDI backend)
 * `libevdev-dev` (for the evdev backend)
 * `liblua5.3-dev` (for the lua backend)
 * `libola-dev` (for the optional OLA backend)
+* `libjack-jackd2-dev` (for the JACK backend)
 * `pkg-config` (as some projects and systems like to spread their files around)
 * `libssl-dev` (for the MA Web Remote backend)
 * A C compiler
 * GNUmake
 
+To build for Windows, the package `mingw-w64` provides a cross-compiler that can
+be used to build a subset of the backends as well as the core.
+
 ### Build
 
-Just running `make` in the source directory should do the trick.
+For Linux and OSX, just running `make` in the source directory should do the trick.
+
+The build process accepts the following parameters, either from the environment or
+as arguments to the `make` invocation:
+
+| Target	| Parameter		| Default value			| Description			|
+|---------------|-----------------------|-------------------------------|-------------------------------|
+| build targets	| `DEFAULT_CFG`		| `monster.cfg`			| Default configuration file	|
+| build targets	| `PLUGINS`		| Linux/OSX: `./backends/`, Windows: `backends\` | Backend plugin library path	|
+| `install`	| `PREFIX`		| `/usr`			| Install prefix for binaries	|
+| `install`	| `DESTDIR`		| empty				| Destination directory for packaging builds	|
+| `install`	| `DEFAULT_CFG`		| empty				| Install path for default configuration file	|
+| `install`	| `PLUGINS`		| `$(PREFIX)/lib/midimonster`	| Install path for backend shared objects	|
+| `install`	| `EXAMPLES`		| `$(PREFIX)/share/midimonster`	| Install path for example configurations	|
+
+Note that the same variables may have different default values depending on the target. This implies that
+builds that are destined to be installed require those variables to be set to the same value for the
+build and `install` targets.
 
 Some backends have been marked as optional as they require rather large additional software to be installed,
-for example the `ola` backend. To build these, run `make full` in the backends directory.
+for example the `ola` backend. To create a build including these, run `make full`.
+
+Backends may also be built selectively by running `make <backendfile>` in the `backends/` directory,
+for example
+
+```
+make jack.so
+```
+#### Using the installer
+
+For easy installation on Linux, the [installer script](installer.sh) can be used:
+
+```
+wget https://raw.githubusercontent.com/cbdevnet/midimonster/master/installer.sh ./
+chmod +x ./installer.sh
+./installer.sh
+```
+This tool can also update MIDImonster automatically using a configuration file generated by the installer.
+To do so, run `midimonster-updater` as root on your system after using the installer.
+
+#### Building for packaging or installation
+
+For system-wide install or packaging builds, the following steps are recommended:
+
+```
+export PREFIX=/usr
+export PLUGINS=$PREFIX/lib/midimonster
+export DEFAULT_CFG=/etc/midimonster/midimonster.cfg
+make clean
+make full
+make install
+```
+
+Depending on your configuration of `DESTDIR`, the `make install` step may require root privileges to
+install the binaries to the appropriate destinations.
+
+To create Debian packages, use the debianization and `git-buildpackage` configuration on the `debian/master`
+branch. Simply running `gbp buildpackage` should build a package for the last tagged release.
+
+#### Building for Windows
+
+To build for Windows, you still need to compile on a Linux machine (virtual machines work well for this).
+
+In a fresh Debian installation, you will need to install the following packages (using `apt-get install` as root):
+
+* `build-essential`
+* `pkg-config`
+* `git`
+* `mingw-w64`
+
+Clone the repository and run `make windows` in the project directory.
+This will build `midimonster.exe` as well as a set of backends as DLL files, which you can then copy
+to the Windows machine.
+
+Note that some backends have limitations when building on Windows (refer to the backend documentation
+for detailed information).
 
 ## Development
 

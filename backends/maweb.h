@@ -1,14 +1,14 @@
 #include "midimonster.h"
 
-int init();
+MM_PLUGIN_API int init();
 static int maweb_configure(char* option, char* value);
 static int maweb_configure_instance(instance* inst, char* option, char* value);
 static instance* maweb_instance();
-static channel* maweb_channel(instance* inst, char* spec);
+static channel* maweb_channel(instance* inst, char* spec, uint8_t flags);
 static int maweb_set(instance* inst, size_t num, channel** c, channel_value* v);
 static int maweb_handle(size_t num, managed_fd* fds);
-static int maweb_start();
-static int maweb_shutdown();
+static int maweb_start(size_t n, instance** inst);
+static int maweb_shutdown(size_t n, instance** inst);
 static uint32_t maweb_interval();
 
 //Default login password: MD5("midimonster")
@@ -25,7 +25,7 @@ typedef enum /*_maweb_channel_type*/ {
 	exec_button = 2, //gma: 0 dot: 0
 	exec_lower = 3, //gma: 1 dot: 1
 	exec_upper = 4, //gma: 2 dot: 0
-	cmdline_button
+	cmdline
 } maweb_channel_type;
 
 typedef enum /*_maweb_peer_type*/ {
@@ -42,6 +42,12 @@ typedef enum /*_ws_conn_state*/ {
 	ws_closed
 } maweb_state;
 
+typedef enum /*_maweb_cmdline_mode*/ {
+	cmd_remote = 0,
+	cmd_console,
+	cmd_downgrade
+} maweb_cmdline_mode;
+
 typedef enum /*_ws_frame_op*/ {
 	ws_text = 1,
 	ws_binary = 2,
@@ -49,15 +55,28 @@ typedef enum /*_ws_frame_op*/ {
 	ws_pong = 10
 } maweb_operation;
 
-typedef union {
-	struct {
-		uint8_t padding[3];
-		uint8_t type;
-		uint16_t page;
-		uint16_t index;
-	} fields;
-	uint64_t label;
-} maweb_channel_ident;
+typedef struct {
+	char* name;
+	unsigned lua;
+	uint8_t press;
+	uint8_t release;
+	uint8_t auto_submit;
+} maweb_command_key;
+
+typedef struct /*_maweb_channel*/ {
+	maweb_channel_type type;
+	uint16_t page;
+	uint16_t index;
+
+	uint8_t input_blocked;
+
+	double in;
+	double out;
+
+	//reverse reference required because the identifiers are not stable
+	//because we sort the backing store...
+	channel* chan;
+} maweb_channel_data;
 
 typedef struct /*_maweb_instance_data*/ {
 	char* host;
@@ -69,9 +88,9 @@ typedef struct /*_maweb_instance_data*/ {
 	int64_t session;
 	maweb_peer_type peer_type;
 
-	//need to keep an internal registry to optimize data polls
-	size_t input_channels;
-	maweb_channel_ident* input_channel;
+	size_t channels;
+	maweb_channel_data* channel;
+	maweb_cmdline_mode cmdline;
 
 	int fd;
 	maweb_state state;

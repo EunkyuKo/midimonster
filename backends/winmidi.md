@@ -1,41 +1,40 @@
-### The `midi` backend
+### The `winmidi` backend
 
-The MIDI backend provides read-write access to the MIDI protocol via virtual ports.
+This backend provides read-write access to the MIDI protocol via the Windows Multimedia API.
+
+It is only available when building for Windows. Care has been taken to keep the configuration
+syntax similar to the `midi` backend, but due to differences in the internal programming interfaces,
+some deviations may still be present.
 
 #### Global configuration
 
 | Option	| Example value		| Default value 	| Description		|
 |---------------|-----------------------|-----------------------|-----------------------|
-| `name`	| `MIDIMonster`		| none			| MIDI client name	|
+| `list`	| `on`                  | `off`                 | List available input/output devices on startup |
 | `detect`      | `on`                  | `off`                 | Output channel specifications for any events coming in on configured instances to help with configuration. |
 
 #### Instance configuration
 
 | Option	| Example value		| Default value 	| Description		|
 |---------------|-----------------------|-----------------------|-----------------------|
-| `read`	| `20:0`		| none			| MIDI device to connect for input |
+| `read`	| `2`			| none			| MIDI device to connect for input |
 | `write`	| `DeviceName`		| none			| MIDI device to connect for output |
 
-MIDI device names may either be `client:port` portnames or prefixes of MIDI device names.
-Run `aconnect -i` to list input ports and `aconnect -o` to list output ports.
-
-Each instance also provides a virtual port, so MIDI devices can also be connected with `aconnect <sender> <receiver>`.
+Input/output device names may either be prefixes of MIDI device names or numeric indices corresponding
+to the listing shown at startup when using the global `list` option.
 
 #### Channel specification
 
-The MIDI backend supports mapping different MIDI events to MIDIMonster channels. The currently supported event types are
+The `winmidi` backend supports mapping different MIDI events as MIDIMonster channels. The currently supported event types are
 
 * `cc` - Control Changes
 * `note` - Note On/Off messages
 * `pressure` - Note pressure/aftertouch messages
 * `aftertouch` - Channel-wide aftertouch messages
 * `pitch` - Channel pitchbend messages
-* `nrpn` - NRPNs (not yet implemented)
 
 A MIDIMonster channel is specified using the syntax `channel<channel>.<type><index>`. The shorthand `ch` may be
 used instead of the word `channel` (Note that `channel` here refers to the MIDI channel number).
-The earlier syntax of `<type><channel>.<index>` is officially deprecated but still supported for compatibility
-reasons. This support may be removed at some future time.
 
 The `pitch` and `aftertouch` events are channel-wide, thus they can be specified as `channel<channel>.<type>`.
 
@@ -50,16 +49,12 @@ midi1.channel15.pressure1 > midi1.channel0.note0
 midi1.ch1.aftertouch > midi2.ch2.cc0
 midi1.ch0.pitch > midi2.ch1.pitch
 ```
-#### Known bugs / problems
 
-To access MIDI data, the user running MIDIMonster needs read & write access to the ALSA sequencer.
-This can usually be done by adding this user to the `audio` system group.
+#### Known bugs / problems
 
 Currently, no Note Off messages are sent (instead, Note On messages with a velocity of 0 are
 generated, which amount to the same thing according to the spec). This may be implemented as
 a configuration option at a later time.
 
-NRPNs are not yet fully implemented, though rudimentary support is in the codebase.
-
-To see which events your MIDI devices output, ALSA provides the `aseqdump` utility. You can
-list all incoming events using `aseqdump -p <portname>`.
+As this is a Windows-only backend, testing may not be as frequent or thorough as for the Linux / multiplatform
+backends.

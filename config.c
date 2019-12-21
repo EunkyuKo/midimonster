@@ -1,5 +1,7 @@
 #include <string.h>
 #include <ctype.h>
+#include <unistd.h>
+#include <errno.h>
 #include "midimonster.h"
 #include "config.h"
 #include "backend.h"
@@ -162,7 +164,7 @@ static int config_glob_scan(instance* inst, channel_spec* spec){
 	}
 	if(!spec->internal){
 		//TODO try to parse globs externally
-		fprintf(stderr, "Failed to parse glob %lu in %s internally\n", u + 1, spec->spec);
+		fprintf(stderr, "Failed to parse glob %" PRIsize_t " in %s internally\n", u + 1, spec->spec);
 		return 1;
 	}
 
@@ -173,7 +175,7 @@ static int config_glob_scan(instance* inst, channel_spec* spec){
 	return 0;
 }
 
-static channel* config_glob_resolve(instance* inst, channel_spec* spec, uint64_t n){
+static channel* config_glob_resolve(instance* inst, channel_spec* spec, uint64_t n, uint8_t map_direction){
 	size_t glob = 0, glob_length;
 	ssize_t bytes = 0;
 	uint64_t current_value = 0;
@@ -199,7 +201,7 @@ static channel* config_glob_resolve(instance* inst, channel_spec* spec, uint64_t
 		//write out value
 		bytes = snprintf(resolved_spec + spec->glob[glob - 1].offset[0],
 				glob_length,
-				"%lu",
+				"%" PRIu64,
 				current_value);
 		if(bytes > glob_length){
 			fprintf(stderr, "Internal error resolving glob %s\n", spec->spec);
@@ -214,7 +216,7 @@ static channel* config_glob_resolve(instance* inst, channel_spec* spec, uint64_t
 		}
 	}
 
-	result = inst->backend->channel(inst, resolved_spec);
+	result = inst->backend->channel(inst, resolved_spec, map_direction);
 	if(spec->globs && !result){
 		fprintf(stderr, "Failed to match multichannel evaluation %s to a channel\n", resolved_spec);
 	}
@@ -279,7 +281,7 @@ static int config_map(char* to_raw, char* from_raw){
 	if((spec_to.channels != spec_from.channels && spec_from.channels != 1 && spec_to.channels != 1)
 			|| spec_to.channels == 0
 			|| spec_from.channels == 0){
-		fprintf(stderr, "Multi-channel specification size mismatch: %s.%s (%lu channels) - %s.%s (%lu channels)\n",
+		fprintf(stderr, "Multi-channel specification size mismatch: %s.%s (%" PRIsize_t " channels) - %s.%s (%" PRIsize_t " channels)\n",
 				instance_from->name,
 				spec_from.spec,
 				spec_from.channels,
@@ -292,8 +294,8 @@ static int config_map(char* to_raw, char* from_raw){
 	//iterate, resolve globs and map
 	rv = 0;
 	for(n = 0; !rv && n < max(spec_from.channels, spec_to.channels); n++){
-		channel_from = config_glob_resolve(instance_from, &spec_from, min(n, spec_from.channels));
-		channel_to = config_glob_resolve(instance_to, &spec_to, min(n, spec_to.channels));
+		channel_from = config_glob_resolve(instance_from, &spec_from, min(n, spec_from.channels), mmchannel_input);
+		channel_to = config_glob_resolve(instance_to, &spec_to, min(n, spec_to.channels), mmchannel_output);
 		
 		if(!channel_from || !channel_to){
 			rv = 1;
@@ -310,16 +312,46 @@ done:
 	return rv;
 }
 
-int config_read(char* cfg_file){
+int config_read(char* cfg_filepath){
 	int rv = 1;
 	size_t line_alloc = 0;
 	ssize_t status;
 	map_type mapping_type = map_rtl;
+	FILE* source = NULL;
 	char* line_raw = NULL, *line, *separator;
-	FILE* source = fopen(cfg_file, "r");
+
+	//create heap copy of file name because original might be in readonly memory
+	char* source_dir = strdup(cfg_filepath), *source_file = NULL;
+	#ifdef _WIN32
+	char path_separator = '\\';
+	#else
+	char path_separator = '/';
+	#endif
+
+	if(!source_dir){
+		fprintf(stderr, "Failed to allocate memory\n");
+		return 1;
+	}
+
+	//change working directory to the one containing the configuration file so relative paths work as expected
+	source_file = strrchr(source_dir, path_separator);
+	if(source_file){
+		*source_file = 0;
+		source_file++;
+		if(chdir(source_dir)){
+			fprintf(stderr, "Failed to change to configuration file directory %s: %s\n", source_dir, strerror(errno));
+			goto bail;
+		}
+	}
+	else{
+		source_file = source_dir;
+	}
+
+	source = fopen(source_file, "r");
+
 	if(!source){
 		fprintf(stderr, "Failed to open configuration file for reading\n");
-		return 1;
+		goto bail;
 	}
 
 	for(status = getline(&line_raw, &line_alloc, source); status >= 0; status = getline(&line_raw, &line_alloc, source)){
@@ -459,7 +491,10 @@ int config_read(char* cfg_file){
 
 	rv = 0;
 bail:
-	fclose(source);
+	free(source_dir);
+	if(source){
+		fclose(source);
+	}
 	free(line_raw);
 	return rv;
 }
